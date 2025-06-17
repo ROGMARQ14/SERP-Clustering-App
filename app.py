@@ -46,7 +46,7 @@ with col2:
         help="Higher values make labels more creative, lower values more focused"
     )
 
-sim_threshold = st.slider("Cosine Similarity Threshold", min_value=70, max_value=95, value=80)
+sim_threshold = st.slider("Cosine Similarity Threshold", min_value=70, max_value=95, value=75)
 progress_text = st.empty()
 progress_bar = st.progress(0)
 
