@@ -155,7 +155,8 @@ Return a short, generalized 2–4 word label that describes the group. Avoid lon
 # Clustering Logic
 # --------------------
 if st.button("Run Clustering") and uploaded_file and openai_api_key:
-    st.info("Embedding and clustering... hold tight.")
+    st.info("Loading and processing CSV file...")
+    
     try:
         # Load CSV with error handling
         df, load_status = load_csv_safely(uploaded_file)
@@ -269,12 +270,13 @@ if st.button("Run Clustering") and uploaded_file and openai_api_key:
             st.warning("⚠️ Clustering completed but no meaningful clusters were formed. Try reducing the similarity threshold.")
             st.stop()
 
-        # Store results in session state to prevent reset
-        st.session_state.clustering_results = final_df
-        st.session_state.clustering_complete = True
-
         percent_clustered = round((len(final_df) / len(keywords)) * 100, 2)
         st.success(f"✅ Clustering complete! {percent_clustered}% of keywords clustered.")
+
+        csv = final_df.to_csv(index=False, encoding="utf-8")
+        st.download_button("Download Clustered CSV", data=csv, file_name="clustered_keywords.csv", mime="text/csv", key="download_csv")
+        st.markdown("### 🔍 Final Clustered Output")
+        st.dataframe(final_df, use_container_width=True)
 
     except Exception as e:
         st.error(f"Something went wrong during clustering: {e}")
@@ -284,31 +286,3 @@ if st.button("Run Clustering") and uploaded_file and openai_api_key:
         - Ensure consistent column structure
         - Look for special characters or encoding issues
         """)
-
-# Display results and download button (outside the clustering logic)
-if hasattr(st.session_state, 'clustering_complete') and st.session_state.clustering_complete:
-    final_df = st.session_state.clustering_results
-    
-    # Create properly formatted CSV
-    csv_data = final_df.to_csv(index=False, encoding='utf-8-sig')  # UTF-8 with BOM for Excel compatibility
-    
-    # Download button with unique key and proper CSV formatting
-    st.download_button(
-        label="📥 Download Clustered Keywords (CSV)",
-        data=csv_data,
-        file_name=f"clustered_keywords_{int(time.time())}.csv",
-        mime="text/csv",
-        key="download_clustered_csv",
-        help="Download your clustered keywords as a CSV file"
-    )
-    
-    st.markdown("### 🔍 Final Clustered Output")
-    st.dataframe(final_df, use_container_width=True)
-    
-    # Option to clear results
-    if st.button("🔄 Clear Results & Start Over"):
-        if 'clustering_results' in st.session_state:
-            del st.session_state.clustering_results
-        if 'clustering_complete' in st.session_state:
-            del st.session_state.clustering_complete
-        st.rerun()
