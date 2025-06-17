@@ -5,6 +5,16 @@ import time
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.cluster import AgglomerativeClustering
+import os
+import subprocess
+
+# Try to import custom modules
+try:
+    from fetch_serp import fetch_all_serp_results
+    from label_clusters import label_keyword_clusters
+    MODULES_AVAILABLE = True
+except ImportError:
+    MODULES_AVAILABLE = False
 
 # --------------------
 # Streamlit UI Setup
@@ -15,6 +25,7 @@ st.markdown("Upload your keyword CSV and get semantic, search-intent-based clust
 
 uploaded_file = st.file_uploader("Upload your keywords.csv file", type="csv")
 openai_api_key = st.text_input("OpenAI API Key", type="password")
+serper_api_key = st.text_input("Serper API Key (for SERP data)", type="password", help="Get your API key from https://serper.dev")
 sim_threshold = st.slider("Cosine Similarity Threshold", min_value=70, max_value=95, value=80)
 progress_text = st.empty()
 progress_bar = st.progress(0)
@@ -91,7 +102,18 @@ def get_embedding(text, client):
         )
         return response.data[0].embedding
     except Exception as e:
-        st.warning(f"Embedding failed for '{text}': {e}")
+        if "unsupported_country_region_territory" in str(e):
+            st.error("🚫 **Regional Restriction**: OpenAI API is not available in your region.")
+            st.markdown("""
+            **Solutions:**
+            1. Use a VPN to connect from a supported region (US, UK, Canada, etc.)
+            2. Check your OpenAI account region settings
+            3. Try a different API key from a supported region
+            
+            **Supported regions**: https://platform.openai.com/docs/supported-countries
+            """)
+        else:
+            st.warning(f"Embedding failed for '{text}': {e}")
         return None
 
 def generate_label(keywords, client):
