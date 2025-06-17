@@ -8,7 +8,7 @@ keywords_df = pd.read_csv("keywords.csv")
 keywords = keywords_df["Keyword"].dropna().tolist()
 
 # Serper API details
-SERPER_API_KEY = "eb089cc1bad537ae8a8b5d5ac2d3ecf9e101142a"
+SERPER_API_KEY = "533aaea25c1387628b1148ac6e46ce08c0321410"
 SERPER_API_URL = "https://google.serper.dev/search"
 
 headers = {
