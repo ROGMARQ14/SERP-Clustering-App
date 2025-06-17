@@ -38,6 +38,36 @@ def load_csv_safely(uploaded_file):
             # Try with different separators and error handling
             df = pd.read_csv(uploaded_file, sep=',', on_bad_lines='skip')
             st.info("⚠️ Some malformed lines were skipped during CSV parsing.")
+            
+            # If we only got 1 column, try other delimiters
+            if df.shape[1] == 1:
+                uploaded_file.seek(0)
+                
+                # Try semicolon delimiter
+                try:
+                    df_semi = pd.read_csv(uploaded_file, sep=';', on_bad_lines='skip')
+                    if df_semi.shape[1] > 1:
+                        st.info("✅ Using semicolon (;) as delimiter")
+                        return df_semi, "semicolon_delimiter"
+                except:
+                    pass
+                
+                uploaded_file.seek(0)
+                
+                # Try tab delimiter
+                try:
+                    df_tab = pd.read_csv(uploaded_file, sep='\t', on_bad_lines='skip')
+                    if df_tab.shape[1] > 1:
+                        st.info("✅ Using tab as delimiter")
+                        return df_tab, "tab_delimiter"
+                except:
+                    pass
+                
+                uploaded_file.seek(0)
+                
+                # If still single column, check if it's actually all keywords in one column
+                st.info("📋 Single column detected - treating as keyword list")
+            
             return df, "skipped_lines"
         except Exception as e2:
             st.warning(f"Fallback method 1 failed: {e2}")
@@ -128,6 +158,15 @@ if st.button("Run Clustering") and uploaded_file and openai_api_key:
             st.warning(f"⚠️ No standard keyword column found. Using '{keyword_col}' as keyword column.")
         else:
             st.success(f"✅ Using '{keyword_col}' as keyword column.")
+        
+        # Special handling for single-column CSVs
+        if df.shape[1] == 1:
+            st.info("📋 Single column CSV detected. All data will be treated as keywords.")
+            # Rename column to something more descriptive if it's unclear
+            if keyword_col.lower() in ['0', 'unnamed: 0', 'column1'] or keyword_col.startswith('Unnamed'):
+                df = df.rename(columns={keyword_col: 'Keywords'})
+                keyword_col = 'Keywords'
+                st.info(f"📝 Renamed column to '{keyword_col}' for clarity.")
         
         # Extract keywords with better cleaning
         keywords_raw = df[keyword_col].dropna().astype(str).str.strip()
