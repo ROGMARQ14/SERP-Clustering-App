@@ -4,13 +4,23 @@ import json
 import os
 import time
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Import your existing modules
 try:
     from fetch_serp import fetch_serp_data
     from cluster_keywords import cluster_keywords_by_serp
     from label_clusters import label_clusters
-    from fetch_keyword_metrics import fetch_and_enrich, fetch_keyword_metrics_dataforseo, fetch_keyword_metrics_semrush, enrich_clustered_keywords
+    from fetch_keyword_metrics import (
+        fetch_and_enrich, 
+        fetch_keyword_metrics_dataforseo, 
+        fetch_keyword_metrics_dataforseo_with_competition,  # Fixed: Added this import
+        fetch_keyword_metrics_semrush, 
+        enrich_clustered_keywords
+    )
     MODULES_AVAILABLE = True
 except ImportError as e:
     MODULES_AVAILABLE = False
@@ -24,12 +34,36 @@ st.set_page_config(page_title="SERP-Based Keyword Clustering Tool", layout="wide
 st.title("🔍 SERP-Based Keyword Clustering Tool")
 st.markdown("Upload keywords and cluster them based on actual Google search result overlap.")
 
+# Get environment variables with defaults
+default_serper_key = os.getenv("SERPER_API_KEY", "")
+default_openai_key = os.getenv("OPENAI_API_KEY", "")
+default_dataforseo_login = os.getenv("DATAFORSEO_LOGIN", "")
+default_dataforseo_password = os.getenv("DATAFORSEO_PASSWORD", "")
+default_dataforseo_location = int(os.getenv("DATAFORSEO_LOCATION_CODE", "2840"))
+default_semrush_key = os.getenv("SEMRUSH_API_KEY", "")
+default_semrush_db = os.getenv("SEMRUSH_DATABASE", "us")
+
 # Sidebar configuration
 with st.sidebar:
     st.header("⚙️ Configuration")
     
-    serper_api_key = st.text_input("Serper API Key", type="password", help="Get your API key from https://serper.dev")
-    openai_api_key = st.text_input("OpenAI API Key", type="password")
+    # API Keys with environment variable defaults
+    serper_api_key = st.text_input(
+        "Serper API Key", 
+        type="password", 
+        value=default_serper_key,
+        help="Get your API key from https://serper.dev"
+    )
+    
+    openai_api_key = st.text_input(
+        "OpenAI API Key", 
+        type="password",
+        value=default_openai_key
+    )
+    
+    # Show if environment variables are loaded
+    if default_serper_key or default_openai_key:
+        st.success("✅ API keys loaded from environment")
     
     # Keyword metrics API selection
     st.subheader("📊 Keyword Metrics (Optional)")
@@ -40,9 +74,21 @@ with st.sidebar:
     )
     
     if metrics_service == "DataForSEO":
-        dataforseo_login = st.text_input("DataForSEO Login Email", type="password")
-        dataforseo_password = st.text_input("DataForSEO Password", type="password")
-        location_code = st.number_input("Location Code", value=2840, help="2840=US, 2826=UK, 2124=CA")
+        dataforseo_login = st.text_input(
+            "DataForSEO Login Email", 
+            type="password",
+            value=default_dataforseo_login
+        )
+        dataforseo_password = st.text_input(
+            "DataForSEO Password", 
+            type="password",
+            value=default_dataforseo_password
+        )
+        location_code = st.number_input(
+            "Location Code", 
+            value=default_dataforseo_location, 
+            help="2840=US, 2826=UK, 2124=CA"
+        )
         
         # Option to include competition/CPC data
         include_competition = st.checkbox(
@@ -51,30 +97,17 @@ with st.sidebar:
             help="Adds $0.075 per 1000 keywords (Google Ads endpoint)"
         )
         
-        # Show cost estimate
-        if uploaded_file:
-            try:
-                df_temp = pd.read_csv(uploaded_file)
-                uploaded_file.seek(0)  # Reset file pointer
-                num_keywords = len(df_temp)
-                num_batches = (num_keywords + 999) // 1000
-                
-                clickstream_cost = num_batches * 0.15
-                google_ads_cost = num_batches * 0.075 if include_competition else 0
-                total_cost = clickstream_cost + google_ads_cost
-                
-                st.info(f"""
-                **💰 Estimated DataForSEO Cost:**
-                - Keywords: {num_keywords}
-                - Clickstream API: ${clickstream_cost:.2f} ({num_batches} batches × $0.15)
-                {f'- Google Ads API: ${google_ads_cost:.2f} ({num_batches} batches × $0.075)' if include_competition else ''}
-                - **Total: ${total_cost:.2f}**
-                """)
-            except:
-                pass
     elif metrics_service == "SEMrush":
-        semrush_api_key = st.text_input("SEMrush API Key", type="password")
-        semrush_database = st.selectbox("Database", ["us", "uk", "ca", "au", "de", "fr", "es", "it", "br", "mx"])
+        semrush_api_key = st.text_input(
+            "SEMrush API Key", 
+            type="password",
+            value=default_semrush_key
+        )
+        semrush_database = st.selectbox(
+            "Database", 
+            ["us", "uk", "ca", "au", "de", "fr", "es", "it", "br", "mx"],
+            index=["us", "uk", "ca", "au", "de", "fr", "es", "it", "br", "mx"].index(default_semrush_db)
+        )
     
     with st.expander("Advanced Settings"):
         similarity_threshold = st.slider(
@@ -102,6 +135,28 @@ with st.sidebar:
 
 # Main area
 uploaded_file = st.file_uploader("Upload keywords.csv", type=['csv'])
+
+# Show cost estimate for DataForSEO
+if metrics_service == "DataForSEO" and uploaded_file:
+    try:
+        df_temp = pd.read_csv(uploaded_file)
+        uploaded_file.seek(0)  # Reset file pointer
+        num_keywords = len(df_temp)
+        num_batches = (num_keywords + 999) // 1000
+        
+        clickstream_cost = num_batches * 0.15
+        google_ads_cost = num_batches * 0.075 if include_competition else 0
+        total_cost = clickstream_cost + google_ads_cost
+        
+        st.info(f"""
+        **💰 Estimated DataForSEO Cost:**
+        - Keywords: {num_keywords}
+        - Clickstream API: ${clickstream_cost:.2f} ({num_batches} batches × $0.15)
+        {f'- Google Ads API: ${google_ads_cost:.2f} ({num_batches} batches × $0.075)' if include_competition else ''}
+        - **Total: ${total_cost:.2f}**
+        """)
+    except:
+        pass
 
 # Information boxes
 col1, col2 = st.columns(2)
