@@ -1,0 +1,16 @@
+# Temporary files
+keywords.csv
+clustered_keywords.csv
+final_clustered_keywords.csv
+enriched_clustered_keywords.csv
+keyword_metrics.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+
+# Virtual environment
+venv/
+env/
