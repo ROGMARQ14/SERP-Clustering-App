@@ -7,8 +7,8 @@ from pathlib import Path
 
 # Import optimized modules
 try:
-    from fetch_serp_optimized import fetch_serp_data_optimized
-    from cluster_keywords_optimized import optimized_cluster_keywords_by_serp
+    from fetch_serp import fetch_serp_data
+    from cluster_keywords import optimized_cluster_keywords_by_serp
     from label_clusters import label_clusters
     from fetch_keyword_metrics import (
         fetch_keyword_metrics_dataforseo_with_competition,
