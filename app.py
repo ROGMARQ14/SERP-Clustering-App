@@ -5,7 +5,7 @@ import os
 import time
 from pathlib import Path
 
-# Import optimized modules
+# Import modules
 try:
     from fetch_serp import fetch_serp_data
     from cluster_keywords import cluster_keywords_by_serp
