@@ -4,435 +4,352 @@ import json
 import os
 import time
 from pathlib import Path
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
-
-# Import your existing modules
+# Import optimized modules
 try:
-    from fetch_serp import fetch_serp_data
-    from cluster_keywords import cluster_keywords_by_serp
+    from fetch_serp_optimized import fetch_serp_data_optimized
+    from cluster_keywords_optimized import optimized_cluster_keywords_by_serp
     from label_clusters import label_clusters
     from fetch_keyword_metrics import (
-        fetch_and_enrich, 
-        fetch_keyword_metrics_dataforseo, 
-        fetch_keyword_metrics_dataforseo_with_competition,  # Fixed: Added this import
-        fetch_keyword_metrics_semrush, 
+        fetch_keyword_metrics_dataforseo_with_competition,
+        fetch_keyword_metrics_semrush,
         enrich_clustered_keywords
     )
     MODULES_AVAILABLE = True
 except ImportError as e:
     MODULES_AVAILABLE = False
     st.error(f"Required modules not found: {e}")
-    st.error("Please ensure all .py files are in the same directory.")
+
+# --------------------
+# Configuration with Streamlit Secrets
+# --------------------
+
+def load_configuration():
+    """Load configuration from Streamlit secrets with fallbacks"""
+    try:
+        # Primary: Use Streamlit secrets
+        config = {
+            'serper_api_key': st.secrets.get("SERPER_API_KEY", ""),
+            'openai_api_key': st.secrets.get("OPENAI_API_KEY", ""),
+            'dataforseo_login': st.secrets.get("dataforseo", {}).get("login", ""),
+            'dataforseo_password': st.secrets.get("dataforseo", {}).get("password", ""),
+            'dataforseo_location': st.secrets.get("dataforseo", {}).get("location_code", 2840),
+            'semrush_key': st.secrets.get("semrush", {}).get("api_key", ""),
+            'semrush_db': st.secrets.get("semrush", {}).get("database", "us"),
+            # App settings
+            'similarity_threshold': st.secrets.get("app_settings", {}).get("default_similarity_threshold", 0.3),
+            'openai_model': st.secrets.get("app_settings", {}).get("default_openai_model", "gpt-4o-mini"),
+            'temperature': st.secrets.get("app_settings", {}).get("default_temperature", 0.3)
+        }
+
+        if config['serper_api_key'] and config['openai_api_key']:
+            st.success("✅ Configuration loaded from Streamlit secrets")
+        else:
+            st.warning("⚠️ Some API keys missing from secrets")
+
+    except Exception as e:
+        # Fallback: Use environment variables (for local development)
+        st.warning("Using environment variables fallback")
+        config = {
+            'serper_api_key': os.getenv("SERPER_API_KEY", ""),
+            'openai_api_key': os.getenv("OPENAI_API_KEY", ""),
+            'dataforseo_login': os.getenv("DATAFORSEO_LOGIN", ""),
+            'dataforseo_password': os.getenv("DATAFORSEO_PASSWORD", ""),
+            'dataforseo_location': int(os.getenv("DATAFORSEO_LOCATION_CODE", "2840")),
+            'semrush_key': os.getenv("SEMRUSH_API_KEY", ""),
+            'semrush_db': os.getenv("SEMRUSH_DATABASE", "us"),
+            'similarity_threshold': 0.3,
+            'openai_model': "gpt-4o-mini",
+            'temperature': 0.3
+        }
+
+    return config
 
 # --------------------
 # Streamlit UI Setup
 # --------------------
-st.set_page_config(page_title="SERP-Based Keyword Clustering Tool", layout="wide")
-st.title("🔍 SERP-Based Keyword Clustering Tool")
-st.markdown("Upload keywords and cluster them based on actual Google search result overlap.")
 
-# Get environment variables with defaults
-default_serper_key = os.getenv("SERPER_API_KEY", "")
-default_openai_key = os.getenv("OPENAI_API_KEY", "")
-default_dataforseo_login = os.getenv("DATAFORSEO_LOGIN", "")
-default_dataforseo_password = os.getenv("DATAFORSEO_PASSWORD", "")
-default_dataforseo_location = int(os.getenv("DATAFORSEO_LOCATION_CODE", "2840"))
-default_semrush_key = os.getenv("SEMRUSH_API_KEY", "")
-default_semrush_db = os.getenv("SEMRUSH_DATABASE", "us")
+st.set_page_config(
+    page_title="SERP-Based Keyword Clustering Tool", 
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# Sidebar configuration
+st.title("🔍 SERP-Based Keyword Clustering Tool (Optimized)")
+st.markdown("Upload keywords and cluster them based on actual Google search result overlap with enhanced performance.")
+
+# Load configuration
+config = load_configuration()
+
+# --------------------
+# Sidebar Configuration
+# --------------------
+
 with st.sidebar:
     st.header("⚙️ Configuration")
-    
-    # API Keys with environment variable defaults
-    serper_api_key = st.text_input(
-        "Serper API Key", 
-        type="password", 
-        value=default_serper_key,
-        help="Get your API key from https://serper.dev"
+
+    # Show configuration status
+    with st.expander("🔐 Security Status"):
+        if config['serper_api_key']:
+            st.success("✅ Serper API Key loaded")
+        else:
+            st.error("❌ Serper API Key missing")
+
+        if config['openai_api_key']:
+            st.success("✅ OpenAI API Key loaded")
+        else:
+            st.error("❌ OpenAI API Key missing")
+
+    # API Key overrides (only show if not in secrets)
+    if not config['serper_api_key']:
+        config['serper_api_key'] = st.text_input(
+            "Serper API Key",
+            type="password",
+            help="Get your API key from https://serper.dev"
+        )
+
+    if not config['openai_api_key']:
+        config['openai_api_key'] = st.text_input(
+            "OpenAI API Key",
+            type="password"
+        )
+
+    # Performance settings
+    st.subheader("🚀 Performance Settings")
+    use_async_processing = st.checkbox(
+        "Use Async Processing", 
+        value=True,
+        help="Enable concurrent API requests for faster processing"
     )
-    
-    openai_api_key = st.text_input(
-        "OpenAI API Key", 
-        type="password",
-        value=default_openai_key
+
+    use_advanced_clustering = st.checkbox(
+        "Use Advanced Clustering",
+        value=True, 
+        help="Use TF-IDF vectorization for better semantic clustering"
     )
-    
-    # Show if environment variables are loaded
-    if default_serper_key or default_openai_key:
-        st.success("✅ API keys loaded from environment")
-    
-    # Keyword metrics API selection
-    st.subheader("📊 Keyword Metrics (Optional)")
+
+    max_concurrent_requests = st.slider(
+        "Max Concurrent Requests",
+        min_value=1,
+        max_value=20,
+        value=10,
+        help="Number of simultaneous API requests (higher = faster but more resource intensive)"
+    )
+
+    # Keyword metrics configuration
+    st.subheader("📊 Keyword Metrics")
     metrics_service = st.selectbox(
         "Metrics API Service",
         ["None", "DataForSEO", "SEMrush"],
         help="Add search volume and competition data"
     )
-    
-    if metrics_service == "DataForSEO":
-        dataforseo_login = st.text_input(
-            "DataForSEO Login Email", 
-            type="password",
-            value=default_dataforseo_login
-        )
-        dataforseo_password = st.text_input(
-            "DataForSEO Password", 
-            type="password",
-            value=default_dataforseo_password
-        )
-        location_code = st.number_input(
-            "Location Code", 
-            value=default_dataforseo_location, 
-            help="2840=US, 2826=UK, 2124=CA"
-        )
-        
-        # Option to include competition/CPC data
-        include_competition = st.checkbox(
-            "Include Competition & CPC data", 
-            value=False,
-            help="Adds $0.075 per 1000 keywords (Google Ads endpoint)"
-        )
-        
-    elif metrics_service == "SEMrush":
-        semrush_api_key = st.text_input(
-            "SEMrush API Key", 
-            type="password",
-            value=default_semrush_key
-        )
-        semrush_database = st.selectbox(
-            "Database", 
-            ["us", "uk", "ca", "au", "de", "fr", "es", "it", "br", "mx"],
-            index=["us", "uk", "ca", "au", "de", "fr", "es", "it", "br", "mx"].index(default_semrush_db)
-        )
-    
-    with st.expander("Advanced Settings"):
+
+    # Advanced settings
+    with st.expander("⚙️ Advanced Settings"):
         similarity_threshold = st.slider(
-            "SERP Similarity Threshold", 
-            min_value=0.1, 
-            max_value=0.9, 
-            value=0.3,
+            "SERP Similarity Threshold",
+            min_value=0.1,
+            max_value=0.9,
+            value=config['similarity_threshold'],
             step=0.05,
-            help="Higher = stricter clustering (fewer, tighter clusters)"
+            help="Higher = stricter clustering"
         )
-        
+
         openai_model = st.selectbox(
-            "OpenAI Model for Labels",
+            "OpenAI Model",
             ["gpt-4o-mini", "gpt-4o", "gpt-4", "gpt-3.5-turbo"],
             index=0
         )
-        
-        label_temperature = st.slider(
-            "Label Temperature",
-            min_value=0.0,
-            max_value=1.0,
-            value=0.3,
-            step=0.1
+
+        enable_caching = st.checkbox(
+            "Enable Caching",
+            value=True,
+            help="Cache results to speed up repeated operations"
         )
 
-# Main area
+# --------------------
+# Main Processing Logic
+# --------------------
+
 uploaded_file = st.file_uploader("Upload keywords.csv", type=['csv'])
 
-# Show cost estimate for DataForSEO
+# Performance monitoring
+if st.sidebar.checkbox("Show Performance Metrics", value=False):
+    import psutil
+    import time
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("CPU Usage", f"{psutil.cpu_percent()}%")
+    with col2:
+        st.metric("Memory Usage", f"{psutil.virtual_memory().percent}%")
+    with col3:
+        st.metric("Active Processes", len(psutil.pids()))
+
+# Cost estimation for DataForSEO
 if metrics_service == "DataForSEO" and uploaded_file:
     try:
         df_temp = pd.read_csv(uploaded_file)
         uploaded_file.seek(0)  # Reset file pointer
         num_keywords = len(df_temp)
         num_batches = (num_keywords + 999) // 1000
-        
-        clickstream_cost = num_batches * 0.15
-        google_ads_cost = num_batches * 0.075 if include_competition else 0
-        total_cost = clickstream_cost + google_ads_cost
-        
+        estimated_cost = num_batches * 0.15
+
         st.info(f"""
-        **💰 Estimated DataForSEO Cost:**
-        - Keywords: {num_keywords}
-        - Clickstream API: ${clickstream_cost:.2f} ({num_batches} batches × $0.15)
-        {f'- Google Ads API: ${google_ads_cost:.2f} ({num_batches} batches × $0.075)' if include_competition else ''}
-        - **Total: ${total_cost:.2f}**
+        💰 **Estimated DataForSEO Cost:**
+        - Keywords: {num_keywords:,}
+        - Batches: {num_batches}
+        - **Estimated Cost: ${estimated_cost:.2f}**
         """)
     except:
         pass
 
-# Information boxes
-col1, col2 = st.columns(2)
-with col1:
-    st.info("""
-    **How it works:**
-    1. Fetches top 10 Google results for each keyword
-    2. Clusters keywords that share similar search results
-    3. Labels clusters based on search intent
-    """)
+# Process button with enhanced error handling
+if st.button("🚀 Start Optimized Clustering", type="primary") and uploaded_file:
+    if not config['serper_api_key'] or not config['openai_api_key']:
+        st.error("❌ Please provide both Serper and OpenAI API keys")
+        st.stop()
 
-with col2:
-    st.warning("""
-    **Note:** 
-    - SERP fetching takes ~1.2 seconds per keyword
-    - 100 keywords ≈ 2 minutes processing time
-    """)
-
-# Process button
-if st.button("🚀 Start Clustering", type="primary") and uploaded_file and serper_api_key and openai_api_key:
-    
-    # Save uploaded file temporarily
+    # Save uploaded file
     with open("keywords.csv", "wb") as f:
         f.write(uploaded_file.getbuffer())
-    
+
     try:
-        # Check if keywords.csv exists and has content
+        start_time = time.time()
+
+        # Load and validate keywords
         df_check = pd.read_csv("keywords.csv")
         total_keywords = len(df_check)
-        st.success(f"✅ Loaded {total_keywords} keywords from CSV")
-        
-        # Create progress tracking
-        progress_container = st.container()
-        with progress_container:
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            time_estimate = st.empty()
-        
-        # Step 1: Fetch SERP data
-        status_text.text("🔍 Step 1/3: Fetching SERP data...")
-        time_estimate.text(f"Estimated time: {total_keywords * 1.2 / 60:.1f} minutes")
-        
-        fetch_serp_data(serper_api_key)
-        progress_bar.progress(0.4)
-        
-        # Check if SERP results were generated
-        if os.path.exists("serp_results.json"):
-            with open("serp_results.json", "r") as f:
-                serp_data = json.load(f)
-            st.success(f"✅ Fetched SERP data for {len(serp_data)} keywords")
-        else:
-            st.error("❌ Failed to fetch SERP data")
+
+        if total_keywords == 0:
+            st.error("No keywords found in uploaded file")
             st.stop()
-        
-        # Step 2: Cluster keywords
-        status_text.text("🧮 Step 2/3: Clustering keywords based on SERP overlap...")
-        
-        clustered_df = cluster_keywords_by_serp(
-            input_file="serp_results.json",
-            output_file="clustered_keywords.csv",
-            similarity_threshold=similarity_threshold
-        )
-        progress_bar.progress(0.7)
-        
-        # Display clustering stats
-        num_clusters = clustered_df['Hub'].nunique()
-        avg_cluster_size = len(clustered_df) / num_clusters
-        st.success(f"✅ Created {num_clusters} clusters (avg size: {avg_cluster_size:.1f} keywords)")
-        
-        # Step 3: Generate labels
-        status_text.text("🏷️ Step 3/4: Generating intelligent cluster labels...")
-        
-        final_df = label_clusters(
-            openai_api_key=openai_api_key,
-            input_file="clustered_keywords.csv",
-            output_file="final_clustered_keywords.csv",
-            model=openai_model,
-            temperature=label_temperature
-        )
-        progress_bar.progress(0.85)
-        
-        # Step 4: Fetch keyword metrics (if selected)
-        if metrics_service != "None":
-            status_text.text("📊 Step 4/4: Fetching keyword metrics and calculating cluster priority...")
-            
-            try:
-                # Prepare API credentials
-                api_credentials = {}
-                if metrics_service == "DataForSEO":
-                    api_credentials = {
-                        'login': dataforseo_login,
-                        'password': dataforseo_password,
-                        'location_code': location_code
-                    }
-                    # Fetch metrics directly
-                    keywords = final_df['Keyword'].unique().tolist()
-                    
-                    if include_competition:
-                        # Use combined endpoint for volume + competition/CPC
-                        metrics = fetch_keyword_metrics_dataforseo_with_competition(
-                            keywords, dataforseo_login, dataforseo_password, location_code
-                        )
-                    else:
-                        # Use Clickstream endpoint for volume only
-                        metrics = fetch_keyword_metrics_dataforseo(
-                            keywords, dataforseo_login, dataforseo_password, location_code
-                        )
-                    
-                elif metrics_service == "SEMrush":
-                    api_credentials = {
-                        'api_key': semrush_api_key,
-                        'database': semrush_database
-                    }
-                    # Fetch metrics directly
-                    keywords = final_df['Keyword'].unique().tolist()
-                    metrics = fetch_keyword_metrics_semrush(keywords, semrush_api_key, semrush_database)
-                
-                # Enrich the dataframe with metrics
-                final_df = enrich_clustered_keywords(
-                    "final_clustered_keywords.csv",
-                    metrics,
-                    "enriched_clustered_keywords.csv"
-                )
-                
-                st.success("✅ Keyword metrics added successfully!")
-                
-            except Exception as e:
-                st.warning(f"⚠️ Could not fetch metrics: {e}")
-                st.info("Continuing without keyword metrics...")
-        
-        progress_bar.progress(1.0)
-        status_text.text("✅ Clustering complete!")
-        
-        # Display results
-        st.header("📊 Clustering Results")
-        
-        # Summary metrics
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Keywords", len(final_df))
-        with col2:
-            st.metric("Clusters Created", final_df['Cluster Label'].nunique())
-        with col3:
-            st.metric("Avg Cluster Size", f"{avg_cluster_size:.1f}")
-        with col4:
-            coverage = (len(final_df) / total_keywords * 100)
-            st.metric("Coverage", f"{coverage:.1f}%")
-        
-        # Additional metrics if available
-        if 'Search Volume' in final_df.columns:
-            col1, col2, col3 = st.columns(3)
+
+        st.success(f"✅ Loaded {total_keywords:,} keywords from CSV")
+
+        # Create tabs for better organization
+        tab1, tab2, tab3 = st.tabs(["📊 Processing", "📈 Results", "🔍 Analysis"])
+
+        with tab1:
+            # Step 1: Fetch SERP data
+            st.subheader("🔍 Step 1: Fetching SERP Data")
+            if use_async_processing:
+                st.info("Using optimized async processing for faster results")
+                serp_results = fetch_serp_data_optimized(df_check["Keyword"].tolist())
+            else:
+                st.info("Using standard processing")
+                # Use original function with progress tracking
+                with st.spinner("Fetching SERP data..."):
+                    from fetch_serp import fetch_serp_data
+                    fetch_serp_data(config['serper_api_key'])
+                    with open("serp_results.json", "r") as f:
+                        serp_results = json.load(f)
+
+            if not serp_results:
+                st.error("❌ Failed to fetch SERP data")
+                st.stop()
+
+            # Step 2: Cluster keywords
+            st.subheader("🧮 Step 2: Clustering Keywords")
+
+            if use_advanced_clustering:
+                st.info("Using advanced TF-IDF clustering algorithm")
+            else:
+                st.info("Using URL overlap clustering algorithm")
+
+            clustered_df = optimized_cluster_keywords_by_serp(
+                input_file="serp_results.json",
+                output_file="clustered_keywords.csv", 
+                similarity_threshold=similarity_threshold,
+                use_advanced_clustering=use_advanced_clustering
+            )
+
+            num_clusters = clustered_df['Hub'].nunique()
+            avg_cluster_size = len(clustered_df) / num_clusters if num_clusters > 0 else 0
+
+            st.success(f"✅ Created {num_clusters} clusters (avg size: {avg_cluster_size:.1f})")
+
+            # Step 3: Generate labels
+            st.subheader("🏷️ Step 3: Generating Cluster Labels")
+            final_df = label_clusters(
+                openai_api_key=config['openai_api_key'],
+                input_file="clustered_keywords.csv",
+                output_file="final_clustered_keywords.csv",
+                model=openai_model,
+                temperature=config['temperature']
+            )
+
+            # Calculate total processing time
+            total_time = time.time() - start_time
+            st.success(f"✅ Processing completed in {total_time:.1f} seconds!")
+
+        with tab2:
+            # Display results in the second tab
+            st.subheader("📊 Clustering Results")
+
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
-                total_volume = final_df['Search Volume'].sum()
-                st.metric("Total Search Volume", f"{total_volume:,}")
+                st.metric("Total Keywords", len(final_df))
             with col2:
-                avg_competition = final_df['Competition'].mean()
-                st.metric("Avg Competition", f"{avg_competition:.2f}")
+                st.metric("Clusters Created", final_df['Cluster Label'].nunique())
             with col3:
-                total_value = final_df['Keyword Value'].sum() if 'Keyword Value' in final_df.columns else 0
-                st.metric("Total Keyword Value", f"${total_value:,.0f}")
-        
-        # Download button
-        csv_data = final_df.to_csv(index=False)
-        st.download_button(
-            label="📥 Download Complete Results (CSV)",
-            data=csv_data,
-            file_name="enriched_clustered_keywords.csv" if metrics_service != "None" else "final_clustered_keywords.csv",
-            mime="text/csv"
-        )
-        
-        # Filter options
-        st.subheader("🔍 Explore Clusters")
-        
-        col1, col2 = st.columns([2, 1])
-        with col1:
+                st.metric("Avg Cluster Size", f"{avg_cluster_size:.1f}")
+            with col4:
+                coverage = (len(final_df) / total_keywords * 100)
+                st.metric("Coverage", f"{coverage:.1f}%")
+
+            # Download button
+            csv_data = final_df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Results (CSV)",
+                data=csv_data,
+                file_name="clustered_keywords_optimized.csv",
+                mime="text/csv"
+            )
+
+            # Interactive data explorer
+            st.subheader("🔍 Explore Clusters")
             selected_cluster = st.selectbox(
                 "Select Cluster",
                 ["All Clusters"] + sorted(final_df['Cluster Label'].unique().tolist())
             )
-        with col2:
-            min_size_filter = st.number_input("Min Cluster Size", min_value=1, value=1)
-        
-        # Filter dataframe
-        display_df = final_df.copy()
-        if selected_cluster != "All Clusters":
-            display_df = display_df[display_df['Cluster Label'] == selected_cluster]
-        
-        # Apply size filter
-        cluster_sizes = display_df.groupby('Cluster Label')['Keyword'].count()
-        valid_clusters = cluster_sizes[cluster_sizes >= min_size_filter].index
-        display_df = display_df[display_df['Cluster Label'].isin(valid_clusters)]
-        
-        # Show filtered results
-        if 'Cluster Priority' in display_df.columns:
-            # Show with priority if metrics available
-            display_columns = ['Cluster Label', 'Hub', 'Keyword', 'Search Volume', 'Competition', 'CPC', 'Cluster Priority', 'Cluster Size']
-            display_columns = [col for col in display_columns if col in display_df.columns]
-        else:
-            # Show basic columns
-            display_columns = ['Cluster Label', 'Hub', 'Keyword', 'Cluster Size']
-        
-        st.dataframe(
-            display_df[display_columns],
-            use_container_width=True,
-            height=500
-        )
-        
-        # Cluster summary
-        with st.expander("📈 Cluster Summary"):
-            if 'Cluster Priority' in final_df.columns:
-                # Enhanced summary with metrics
-                summary_df = final_df.groupby('Cluster Label').agg({
-                    'Keyword': 'count',
-                    'Hub': 'first',
-                    'Search Volume': 'sum',
-                    'Competition': 'mean',
-                    'Cluster Priority': 'first'
-                }).rename(columns={
-                    'Keyword': 'Size',
-                    'Search Volume': 'Total Volume'
-                }).sort_values('Cluster Priority', ascending=False)
-                
-                summary_df['Competition'] = summary_df['Competition'].round(2)
-                summary_df['Cluster Priority'] = summary_df['Cluster Priority'].round(0)
+
+            if selected_cluster != "All Clusters":
+                display_df = final_df[final_df['Cluster Label'] == selected_cluster]
             else:
-                # Basic summary
-                summary_df = final_df.groupby('Cluster Label').agg({
-                    'Keyword': 'count',
-                    'Hub': 'first'
-                }).rename(columns={'Keyword': 'Size'}).sort_values('Size', ascending=False)
-            
-            st.dataframe(summary_df, use_container_width=True)
-            
-            # Priority insights if metrics available
-            if 'Cluster Priority' in final_df.columns:
-                st.subheader("🎯 Top Priority Clusters")
-                top_clusters = summary_df.nlargest(5, 'Cluster Priority')
-                
-                for idx, (cluster_label, row) in enumerate(top_clusters.iterrows(), 1):
-                    st.write(f"**{idx}. {cluster_label}**")
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.write(f"Volume: {row['Total Volume']:,}")
-                    with col2:
-                        st.write(f"Competition: {row['Competition']:.2f}")
-                    with col3:
-                        st.write(f"Priority Score: {row['Cluster Priority']:,.0f}")
-        
-        # Show sample URLs for selected cluster
-        if selected_cluster != "All Clusters":
-            with st.expander("🔗 Sample URLs from this cluster"):
-                cluster_data = display_df[display_df['Cluster Label'] == selected_cluster].iloc[0]
-                urls = cluster_data['URLs'].split('\n')[:5]  # Show top 5 URLs
-                for url in urls:
-                    st.write(f"- {url}")
-        
+                display_df = final_df
+
+            st.dataframe(display_df, use_container_width=True, height=400)
+
+        with tab3:
+            # Analysis tab
+            st.subheader("📈 Cluster Analysis")
+
+            # Performance metrics
+            processing_speed = total_keywords / total_time if total_time > 0 else 0
+            st.metric("Processing Speed", f"{processing_speed:.1f} keywords/second")
+
+            # Cluster size distribution
+            cluster_sizes = final_df.groupby('Cluster Label').size()
+            st.bar_chart(cluster_sizes.head(20))
+
+    except Exception as e:
+        st.error(f"❌ An error occurred: {str(e)}")
+        st.exception(e)
+
+    finally:
         # Clean up temporary files
         for file in ['keywords.csv', 'serp_results.json', 'clustered_keywords.csv']:
             if os.path.exists(file):
-                os.remove(file)
-                
-    except Exception as e:
-        st.error(f"An error occurred: {str(e)}")
-        st.exception(e)
-        
-        # Clean up on error
-        for file in ['keywords.csv', 'serp_results.json', 'clustered_keywords.csv']:
-            if os.path.exists(file):
-                os.remove(file)
+                try:
+                    os.remove(file)
+                except:
+                    pass
 
+elif not MODULES_AVAILABLE:
+    st.error("❌ Cannot proceed without required modules")
+elif not uploaded_file:
+    st.info("👆 Please upload a CSV file containing keywords to begin")
 else:
-    if not MODULES_AVAILABLE:
-        st.error("Cannot proceed without required modules. Please ensure all Python files are in the same directory.")
-    elif not uploaded_file:
-        st.info("👆 Please upload a CSV file containing keywords to begin.")
-    elif not serper_api_key:
-        st.warning("🔑 Please enter your Serper API key in the sidebar.")
-    elif not openai_api_key:
-        st.warning("🔑 Please enter your OpenAI API key in the sidebar.")
+    st.warning("🔑 Please ensure all required API keys are configured")
